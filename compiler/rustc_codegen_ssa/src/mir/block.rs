@@ -602,7 +602,6 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         mergeable_succ: bool,
     ) -> MergingSucc {
         let ty = location.ty(self.mir, bx.tcx()).ty;
-        let ty = self.monomorphize(ty);
         let drop_fn = Instance::resolve_drop_glue(bx.tcx(), ty);
 
         if let ty::InstanceKind::DropGlue(_, None) = drop_fn.def {
@@ -942,7 +941,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                         }
 
                         let result_layout =
-                            self.cx.layout_of(self.monomorphized_place_ty(destination.as_ref()));
+                            self.cx.layout_of(destination.ty(self.mir, self.cx.tcx()).ty);
 
                         let (result, store_in_local) = if result_layout.is_zst() {
                             (
@@ -1051,8 +1050,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             assert!(!instance.args.has_infer());
             assert!(!instance.args.has_escaping_bound_vars());
 
-            let result_layout =
-                self.cx.layout_of(self.monomorphized_place_ty(destination.as_ref()));
+            let result_layout = self.cx.layout_of(destination.ty(self.mir, self.cx.tcx()).ty);
 
             let return_dest = if result_layout.is_zst() {
                 ReturnDest::Nothing
@@ -1099,10 +1097,9 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
         let sig = callee.layout.ty.fn_sig(bx.tcx());
 
         let extra_args = &args[sig.inputs().skip_binder().len()..];
-        let extra_args = bx.tcx().mk_type_list_from_iter(extra_args.iter().map(|op_arg| {
-            let op_ty = op_arg.node.ty(self.mir, bx.tcx());
-            self.monomorphize(op_ty)
-        }));
+        let extra_args = bx.tcx().mk_type_list_from_iter(
+            extra_args.iter().map(|op_arg| op_arg.node.ty(self.mir, bx.tcx())),
+        );
 
         let fn_abi = match instance {
             Some(instance) => bx.fn_abi_of_instance(instance, extra_args),
@@ -1402,7 +1399,7 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
                     InlineAsmOperandRef::Const { string }
                 }
                 mir::InlineAsmOperand::SymFn { ref value } => {
-                    let const_ = self.monomorphize(value.const_);
+                    let const_ = value.const_;
                     if let ty::FnDef(def_id, args) = *const_.ty().kind() {
                         let instance = ty::Instance::resolve_for_fn_ptr(
                             bx.tcx(),
@@ -1478,16 +1475,6 @@ impl<'a, 'tcx, Bx: BuilderMethods<'a, 'tcx>> FunctionCx<'a, 'tcx, Bx> {
             self.cached_llbbs[succ] = CachedLlbb::Skip;
             bb = succ;
         }
-    }
-
-    pub(crate) fn codegen_block_as_unreachable(&mut self, bb: mir::BasicBlock) {
-        let llbb = match self.try_llbb(bb) {
-            Some(llbb) => llbb,
-            None => return,
-        };
-        let bx = &mut Bx::build(self.cx, llbb);
-        debug!("codegen_block_as_unreachable({:?})", bb);
-        bx.unreachable();
     }
 
     fn codegen_terminator(

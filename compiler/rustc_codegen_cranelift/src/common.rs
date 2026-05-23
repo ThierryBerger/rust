@@ -2,7 +2,6 @@ use cranelift_codegen::isa::TargetFrontendConfig;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use rustc_abi::{Float, Integer, Primitive};
 use rustc_index::IndexVec;
-use rustc_middle::ty::TypeFoldable;
 use rustc_middle::ty::layout::{
     self, FnAbiError, FnAbiOfHelpers, FnAbiRequest, LayoutError, LayoutOfHelpers,
 };
@@ -342,17 +341,6 @@ impl<'tcx> HasTargetSpec for FunctionCx<'_, '_, 'tcx> {
 }
 
 impl<'tcx> FunctionCx<'_, '_, 'tcx> {
-    pub(crate) fn monomorphize<T>(&self, value: T) -> T
-    where
-        T: TypeFoldable<TyCtxt<'tcx>> + Copy,
-    {
-        self.instance.instantiate_mir_and_normalize_erasing_regions(
-            self.tcx,
-            ty::TypingEnv::fully_monomorphized(),
-            ty::EarlyBinder::bind(value),
-        )
-    }
-
     pub(crate) fn clif_type(&self, ty: Ty<'tcx>) -> Option<Type> {
         clif_type_from_ty(self.tcx, ty)
     }
